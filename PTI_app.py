@@ -407,6 +407,47 @@ if st.session_state['master_df'] is not None:
                 'align': 'center', 
                 'valign': 'vcenter'
             })
+            # 4단계: 동적 수식 및 실시간 검증 적용 (3행부터) [cite: 2026-03-03]
+            # p_계산(G열) = 수수료 * 환율
+            # p_일치(H열) = G열 값과 Summary 시트의 대납수수료(K열) 비교
+            rate_formula = '=IFERROR(IF(C{row}="원화고정", 1, IF(C{row}="송금환율", _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$H:$H, ""), {p_rate})), "")'
+            calc_formula = '=ROUND(E{row} * F{row}, 0)'
+            
+            # 실시간 검증 수식 (Summary 시트의 각 항목과 비교) [cite: 2026-03-03]
+            check_p = '=G{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$K:$K)' # 대납수수료 일치여부 [cite: 2026-03-03]
+            check_v = '=J{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$L:$L)' # 부가세 일치여부 [cite: 2026-03-03]
+            check_w = '=O{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$M:$M)' # 원화환산 일치여부 [cite: 2026-03-03]
+            check_m = '=S{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$N:$N)' # 송금수수료 일치여부 [cite: 2026-03-03]
+            
+            for i in range(len(df_review_data)):
+                row_idx = i + 2 
+                row_num = row_idx + 1 
+                
+                # A, B열 배경색 유지
+                ws_review.write(row_idx, 0, df_review_data.iloc[i, 0], side_gray_fmt)
+                ws_review.write(row_idx, 1, df_review_data.iloc[i, 1], side_gray_fmt)
+                
+                ref_val = str(df_review_data.iloc[i, 0])
+                if "합계" not in ref_val:
+                    # 1. 적용환율 및 계산 수식
+                    p_rate_val = df_review_data.iloc[i, 5]
+                    ws_review.write_formula(row_idx, 5, rate_formula.format(row=row_num, p_rate=p_rate_val or 1), data_fmt)
+                    ws_review.write_formula(row_idx, 6, calc_formula.format(row=row_num), won_fmt)
+                    
+                    # 2. 실시간 일치여부 검증 수식 (글자 대신 수식 입력) [cite: 2026-03-03]
+                    ws_review.write_formula(row_idx, 7, check_p.format(row=row_num), data_fmt)  # H열
+                    ws_review.write_formula(row_idx, 10, check_v.format(row=row_num), data_fmt) # K열
+                    ws_review.write_formula(row_idx, 15, check_w.format(row=row_num), data_fmt) # P열
+                    ws_review.write_formula(row_idx, 19, check_m.format(row=row_num), data_fmt) # T열
+                else:
+                    # 합계 행은 계산된 값 그대로 기록
+                    ws_review.write(row_idx, 6, df_review_data.iloc[i, 6], won_fmt)
+                    ws_review.write(row_idx, 7, "TRUE", data_fmt) # 합계는 수동 확인
+
+                # 부가세(J), 원화환산(O), 결과(S) 데이터 기록
+                for col_idx in [9, 14, 18]: 
+                    ws_review.write(row_idx, col_idx, df_review_data.iloc[i, col_idx], won_fmt)
+                    
             won_fmt = workbook.add_format({'num_format': '₩#,##0', 'align': 'right'})
             writer.sheets['Summary'].set_column('J:N', 15, won_fmt)
             writer.sheets['Calculation_Trace'].set_column('A:H', 28)
