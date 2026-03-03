@@ -376,7 +376,10 @@ if st.session_state['master_df'] is not None:
             workbook = writer.book
             ws_review = writer.sheets['검토']
             
-            header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1})
+            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+            side_gray_fmt = workbook.add_format({'bg_color': '#F2F2F2', 'align': 'left', 'valign': 'vcenter', 'border': 0})
+            data_fmt = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 0})
+            won_fmt = workbook.add_format({'num_format': '#,##0', 'align': 'right', 'border': 0})
             
             ws_review.merge_range('A1:B1', ' ', header_fmt) 
             ws_review.merge_range('C1:H1', '1. 대납수수료(p)', header_fmt)
