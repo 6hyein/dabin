@@ -252,7 +252,7 @@ def generate_summary_bytes(rows_list, template_obj):
 # ==========================================
 st.title("💵 PTI 프로그램 (PeachTree Invoicing)")
 
-st.sidebar.header("📁 Step 1: 파일 업로드")
+st.sidebar.header("📁 Step 1: 파일 업로드v2")
 up_db = st.sidebar.file_uploader("데이터베이스 CSV", type="csv")
 up_fee = st.sidebar.file_uploader("수수료표 CSV ", type="csv")
 up_temp = st.sidebar.file_uploader("Summary 템플릿 XLSX ", type="xlsx")
@@ -376,10 +376,9 @@ if st.session_state['master_df'] is not None:
             workbook = writer.book
             ws_review = writer.sheets['검토']
             
-            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
-            side_gray_fmt = workbook.add_format({'bg_color': '#F2F2F2', 'align': 'left', 'valign': 'vcenter', 'border': 0})
-            data_fmt = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 0})
-            won_fmt = workbook.add_format({'num_format': '#,##0', 'align': 'right', 'border': 0})
+            # ... (기존 코드: ws_review = writer.sheets['검토'] 부분까지는 그대로 둡니다) ...
+
+            header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1})
             
             ws_review.merge_range('A1:B1', ' ', header_fmt) 
             ws_review.merge_range('C1:H1', '1. 대납수수료(p)', header_fmt)
@@ -389,73 +388,93 @@ if st.session_state['master_df'] is not None:
             
             for col_num, value in enumerate(df_review_data.columns.values):
                 ws_review.write(1, col_num, value, header_fmt)
-            gray_fmt = workbook.add_format({
-                'bg_color': '#F2F2F2', 
-                'border': 1, 
-                'align': 'center', 
-                'valign': 'vcenter'
-            })
-            # 2. 사이드 텍스트용 (왼쪽 정렬 유지)
-            side_text_fmt = workbook.add_format({
-                'bg_color': '#F2F2F2', 
-                'border': 1, 
-                'align': 'left', 
-                'valign': 'vcenter'
-            })
-            # 3. 헤더 굵게
-            header_fmt = workbook.add_format({
-                'bold': True, 
-                'bg_color': '#F2F2F2', 
-                'border': 1, 
-                'align': 'center', 
-                'valign': 'vcenter'
-            })
-            # 4단계: 동적 수식 및 실시간 검증 적용 (3행부터) [cite: 2026-03-03]
-            # p_계산(G열) = 수수료 * 환율
-            # p_일치(H열) = G열 값과 Summary 시트의 대납수수료(K열) 비교
-            rate_formula = '=IFERROR(IF(C{row}="원화고정", 1, IF(C{row}="송금환율", _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$H:$H, ""), {p_rate})), "")'
-            calc_formula = '=ROUND(E{row} * F{row}, 0)'
+
+            gray_fmt = workbook.add_format({'bg_color': '#F2F2F2', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+            side_text_fmt = workbook.add_format({'bg_color': '#F2F2F2', 'align': 'left', 'valign': 'vcenter'})
+            data_fmt = workbook.add_format({'align': 'center', 'valign': 'vcenter'})
+            won_fmt = workbook.add_format({'num_format': '#,##0', 'align': 'right'})
+
+            ws_review.set_column('A:B', 20, side_text_fmt)
+            ws_review.set_column('C:T', 15, data_fmt)
+
+            # [최종본] 1. 클래식 함수 사용 + 모든 환율 케이스 대응 + 소수점 오차 완벽 차단
             
-            # 실시간 검증 수식 (Summary 시트의 각 항목과 비교) [cite: 2026-03-03]
-            check_p = '=G{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$K:$K)' # 대납수수료 일치여부 [cite: 2026-03-03]
-            check_v = '=J{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$L:$L)' # 부가세 일치여부 [cite: 2026-03-03]
-            check_w = '=O{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$M:$M)' # 원화환산 일치여부 [cite: 2026-03-03]
-            check_m = '=S{row} = _xlfn.XLOOKUP(B{row}, Summary!$D:$D, Summary!$N:$N)' # 송금수수료 일치여부 [cite: 2026-03-03]
+            # 대납수수료 기준 (Calculation_Trace 시트 참조)
+            form_p_basis = '=IFERROR(MID(VLOOKUP(B{row}, Calculation_Trace!$C:$D, 2, FALSE), FIND("(", VLOOKUP(B{row}, Calculation_Trace!$C:$D, 2, FALSE))+1, FIND(")", VLOOKUP(B{row}, Calculation_Trace!$C:$D, 2, FALSE)) - FIND("(", VLOOKUP(B{row}, Calculation_Trace!$C:$D, 2, FALSE)) - 1), "")'
             
+            # 1. 대납수수료(p) - Summary 시트의 D열(청구번호)을 기준으로 데이터 추출
+            form_p_curr = '=IFERROR(VLOOKUP(B{row}, Summary!$D:$G, 4, FALSE), "")' # G열(통화)
+            # 환율: 원화고정(1), 송금환율(Summary H열), 그 외(사용자입력값 직접 삽입)
+            form_p_rate = '=IFERROR(IF(C{row}="원화고정", 1, IF(C{row}="송금환율", VLOOKUP(B{row}, Summary!$D:$H, 5, FALSE), {p_rate})), "")'
+            form_p_calc = '=IFERROR(ROUND(E{row}*F{row}, 0), 0)'
+            # 일치여부: 소수점 오차를 없애기 위해 양쪽 모두 ROUND(..., 0) 적용 후 비교
+            form_p_chk = '=IF(B{row}="","", IF(ROUND(G{row},0) = ROUND(IFERROR(VLOOKUP(B{row}, Summary!$D:$K, 8, FALSE),0),0), "TRUE", "FALSE"))' # K열(대납수수료)
+
+            # 2. 부가세(v)
+            form_v_calc = '=IFERROR(ROUND(G{row}*0.1, 0), 0)'
+            form_v_chk = '=IF(B{row}="","", IF(ROUND(J{row},0) = ROUND(IFERROR(VLOOKUP(B{row}, Summary!$D:$L, 9, FALSE),0),0), "TRUE", "FALSE"))' # L열(부가세)
+
+            # 3. 원화환산(w)
+            form_w_curr = '=IFERROR(VLOOKUP(B{row}, Summary!$D:$G, 4, FALSE), "")'
+            form_w_rate = '=IFERROR(VLOOKUP(B{row}, Summary!$D:$H, 5, FALSE), "")'
+            form_w_for = '=IFERROR(VLOOKUP(B{row}, Summary!$D:$I, 6, FALSE), "")' # I열(외화합계)
+            form_w_calc = '=IFERROR(ROUNDDOWN(N{row}*M{row}, 0), 0)'
+            form_w_chk = '=IF(B{row}="","", IF(ROUND(O{row},0) = ROUND(IFERROR(VLOOKUP(B{row}, Summary!$D:$M, 10, FALSE),0),0), "TRUE", "FALSE"))' # M열(원화환산)
+
+            # 4. 송금수수료(m)
+            form_m_calc = '=IFERROR(ROUNDDOWN(Q{row}/R{row}, 0), 0)'
+            form_m_chk = '=IF(B{row}="","", IF(ROUND(S{row},0) = ROUND(IFERROR(VLOOKUP(B{row}, Summary!$D:$N, 11, FALSE),0),0), "TRUE", "FALSE"))' # N열(송금수수료)
+
+            # 2. 루프를 돌며 수식 적용
             for i in range(len(df_review_data)):
-                row_idx = i + 2 
-                row_num = row_idx + 1 
-                
-                # A, B열 배경색 유지
-                ws_review.write(row_idx, 0, df_review_data.iloc[i, 0], side_gray_fmt)
-                ws_review.write(row_idx, 1, df_review_data.iloc[i, 1], side_gray_fmt)
-                
+                r_idx = i + 2  
+                r_num = r_idx + 1 
                 ref_val = str(df_review_data.iloc[i, 0])
-                if "합계" not in ref_val:
-                    # 1. 적용환율 및 계산 수식
-                    p_rate_val = df_review_data.iloc[i, 5]
-                    ws_review.write_formula(row_idx, 5, rate_formula.format(row=row_num, p_rate=p_rate_val or 1), data_fmt)
-                    ws_review.write_formula(row_idx, 6, calc_formula.format(row=row_num), won_fmt)
+                is_total_row = "외 " in ref_val and "건" in ref_val
+                
+                # 서식 적용 (데이터는 유지)
+                for c_idx in range(20):
+                    val = df_review_data.iloc[i, c_idx]
+                    fmt = side_text_fmt if c_idx in [0, 1] else (won_fmt if c_idx in [6, 9, 14, 18] else data_fmt)
+                    ws_review.write(r_idx, c_idx, val, fmt)
+                        
+                if not is_total_row:
+                    # 사용자 입력 환율값 확보
+                    p_rate_val = df_review_data.iloc[i, 5] 
                     
-                    # 2. 실시간 일치여부 검증 수식 (글자 대신 수식 입력) [cite: 2026-03-03]
-                    ws_review.write_formula(row_idx, 7, check_p.format(row=row_num), data_fmt)  # H열
-                    ws_review.write_formula(row_idx, 10, check_v.format(row=row_num), data_fmt) # K열
-                    ws_review.write_formula(row_idx, 15, check_w.format(row=row_num), data_fmt) # P열
-                    ws_review.write_formula(row_idx, 19, check_m.format(row=row_num), data_fmt) # T열
-                else:
-                    # 합계 행은 계산된 값 그대로 기록
-                    ws_review.write(row_idx, 6, df_review_data.iloc[i, 6], won_fmt)
-                    ws_review.write(row_idx, 7, "TRUE", data_fmt) # 합계는 수동 확인
+                    ws_review.write_formula(r_idx, 2, form_p_basis.format(row=r_num), data_fmt) 
+                    ws_review.write_formula(r_idx, 3, form_p_curr.format(row=r_num), data_fmt) 
+                    ws_review.write_formula(r_idx, 5, form_p_rate.format(row=r_num, p_rate=p_rate_val if p_rate_val else 1), data_fmt) 
+                    ws_review.write_formula(r_idx, 6, form_p_calc.format(row=r_num), won_fmt)  
+                    ws_review.write_formula(r_idx, 7, form_p_chk.format(row=r_num), data_fmt)  
+                    
+                    ws_review.write_formula(r_idx, 9, form_v_calc.format(row=r_num), won_fmt)  
+                    ws_review.write_formula(r_idx, 10, form_v_chk.format(row=r_num), data_fmt) 
+                    
+                    ws_review.write_formula(r_idx, 11, form_w_curr.format(row=r_num), data_fmt) 
+                    ws_review.write_formula(r_idx, 12, form_w_rate.format(row=r_num), data_fmt) 
+                    ws_review.write_formula(r_idx, 13, form_w_for.format(row=r_num), data_fmt)  
+                    ws_review.write_formula(r_idx, 14, form_w_calc.format(row=r_num), won_fmt)  
+                    ws_review.write_formula(r_idx, 15, form_w_chk.format(row=r_num), data_fmt)  
+                    
+                    ws_review.write_formula(r_idx, 18, form_m_calc.format(row=r_num), won_fmt)  
+                    ws_review.write_formula(r_idx, 19, form_m_chk.format(row=r_num), data_fmt)
 
-                # 부가세(J), 원화환산(O), 결과(S) 데이터 기록
-                for col_idx in [9, 14, 18]: 
-                    ws_review.write(row_idx, col_idx, df_review_data.iloc[i, col_idx], won_fmt)
-
-            won_fmt = workbook.add_format({'num_format': '₩#,##0', 'align': 'right'})
-            writer.sheets['Summary'].set_column('J:N', 15, won_fmt)
+            sum_won_fmt = workbook.add_format({'num_format': '₩#,##0', 'align': 'right'})
+            # FALSE 노란색 배경 조건부 서식 추가
+            false_fmt = workbook.add_format({'bg_color': '#FFFF00'})
+            end_row = len(df_review_data) + 2
+            
+            ws_review.conditional_format(f'A2:T{end_row}', {
+                'type': 'cell',
+                'criteria': '==',
+                'value': '"FALSE"',
+                'format': false_fmt
+            })
+            writer.sheets['Summary'].set_column('J:N', 15, sum_won_fmt)
             writer.sheets['Calculation_Trace'].set_column('A:H', 28)
-            ws_review.set_column('A:T', 15) 
-        st.download_button("📂 1단계: 메인 엑셀 다운로드.2", output.getvalue(), "PTI_main_result.xlsx")
+            
+        st.download_button("📂 1단계: 메인 엑셀 다운로드", output.getvalue(), "PTI_main_result.xlsx")
     with c2:
         if st.button("📄 2단계: 비용청구서 PDF 일괄 생성"):
             pdf_zip = io.BytesIO()
