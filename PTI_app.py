@@ -447,12 +447,12 @@ if st.session_state['master_df'] is not None:
                 # 부가세(J), 원화환산(O), 결과(S) 데이터 기록
                 for col_idx in [9, 14, 18]: 
                     ws_review.write(row_idx, col_idx, df_review_data.iloc[i, col_idx], won_fmt)
-                    
+
             won_fmt = workbook.add_format({'num_format': '₩#,##0', 'align': 'right'})
             writer.sheets['Summary'].set_column('J:N', 15, won_fmt)
             writer.sheets['Calculation_Trace'].set_column('A:H', 28)
             ws_review.set_column('A:T', 15) 
-        st.download_button("📂 1단계: 메인 엑셀 다운로드", output.getvalue(), "PTI_main_result.xlsx")
+        st.download_button("📂 1단계: 메인 엑셀 다운로드.2", output.getvalue(), "PTI_main_result.xlsx")
     with c2:
         if st.button("📄 2단계: 비용청구서 PDF 일괄 생성"):
             pdf_zip = io.BytesIO()
